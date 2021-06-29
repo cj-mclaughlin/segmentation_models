@@ -17,7 +17,7 @@ def Conv2dNorm(
         activity_regularizer=None,
         kernel_constraint=None,
         bias_constraint=None,
-        normalization='batchnorm'
+        normalization='batchnorm',
         **kwargs
 ):
     """Extension of Conv2D layer with normalization layer (bn/gn)"""
