@@ -1,6 +1,8 @@
 from keras_applications import get_submodules_from_kwargs
 
-from ._common_blocks import Conv2dBn
+from tensorflow_addons.layers import GroupNormalization
+
+from ._common_blocks import Conv2dNorm, Conv3x3BnReLU
 from ._utils import freeze_model, filter_keras_submodules
 from ..backbones.backbones_factory import Backbones
 
@@ -27,25 +29,7 @@ def get_submodules():
 #  Blocks
 # ---------------------------------------------------------------------
 
-def Conv3x3BnReLU(filters, use_batchnorm, name=None):
-    kwargs = get_submodules()
-
-    def wrapper(input_tensor):
-        return Conv2dBn(
-            filters,
-            kernel_size=3,
-            activation='relu',
-            kernel_initializer='he_uniform',
-            padding='same',
-            use_batchnorm=use_batchnorm,
-            name=name,
-            **kwargs
-        )(input_tensor)
-
-    return wrapper
-
-
-def DecoderUpsamplingX2Block(filters, stage, use_batchnorm=False):
+def DecoderUpsamplingX2Block(filters, stage, normalization=None):
     up_name = 'decoder_stage{}_upsampling'.format(stage)
     conv1_name = 'decoder_stage{}a'.format(stage)
     conv2_name = 'decoder_stage{}b'.format(stage)
@@ -59,22 +43,22 @@ def DecoderUpsamplingX2Block(filters, stage, use_batchnorm=False):
         if skip is not None:
             x = layers.Concatenate(axis=concat_axis, name=concat_name)([x, skip])
 
-        x = Conv3x3BnReLU(filters, use_batchnorm, name=conv1_name)(x)
-        x = Conv3x3BnReLU(filters, use_batchnorm, name=conv2_name)(x)
+        x = Conv3x3BnReLU(filters, normalization, name=conv1_name)(x)
+        x = Conv3x3BnReLU(filters, normalization, name=conv2_name)(x)
 
         return x
 
     return wrapper
 
 
-def DecoderTransposeX2Block(filters, stage, use_batchnorm=False):
+def DecoderTransposeX2Block(filters, stage, normalization=None):
     transp_name = 'decoder_stage{}a_transpose'.format(stage)
-    bn_name = 'decoder_stage{}a_bn'.format(stage)
+    norm_name = 'decoder_stage{}a_norm'.format(stage)
     relu_name = 'decoder_stage{}a_relu'.format(stage)
     conv_block_name = 'decoder_stage{}b'.format(stage)
     concat_name = 'decoder_stage{}_concat'.format(stage)
 
-    concat_axis = bn_axis = 3 if backend.image_data_format() == 'channels_last' else 1
+    concat_axis = norm_axis = 3 if backend.image_data_format() == 'channels_last' else 1
 
     def layer(input_tensor, skip=None):
 
@@ -84,18 +68,21 @@ def DecoderTransposeX2Block(filters, stage, use_batchnorm=False):
             strides=(2, 2),
             padding='same',
             name=transp_name,
-            use_bias=not use_batchnorm,
+            use_bias=not normalization,
         )(input_tensor)
 
-        if use_batchnorm:
-            x = layers.BatchNormalization(axis=bn_axis, name=bn_name)(x)
+        if normalization == 'batchnorm':
+            x = layers.BatchNormalization(axis=norm_axis, name=norm_name)(x)
+
+        if normalization == 'groupnorm':
+            x = GroupNormalization(axis=norm_axis, name=norm_name)(x)
 
         x = layers.Activation('relu', name=relu_name)(x)
 
         if skip is not None:
             x = layers.Concatenate(axis=concat_axis, name=concat_name)([x, skip])
 
-        x = Conv3x3BnReLU(filters, use_batchnorm, name=conv_block_name)(x)
+        x = Conv3x3BnReLU(filters, normalization, name=conv_block_name)(x)
 
         return x
 
@@ -114,7 +101,7 @@ def build_unet(
         n_upsample_blocks=5,
         classes=1,
         activation='sigmoid',
-        use_batchnorm=True,
+        normalization='groupnorm',
 ):
     input_ = backbone.input
     x = backbone.output
@@ -125,8 +112,8 @@ def build_unet(
 
     # add center block if previous operation was maxpooling (for vgg models)
     if isinstance(backbone.layers[-1], layers.MaxPooling2D):
-        x = Conv3x3BnReLU(512, use_batchnorm, name='center_block1')(x)
-        x = Conv3x3BnReLU(512, use_batchnorm, name='center_block2')(x)
+        x = Conv3x3BnReLU(512, normalization, name='center_block1')(x)
+        x = Conv3x3BnReLU(512, normalization, name='center_block2')(x)
 
     # building decoder blocks
     for i in range(n_upsample_blocks):
@@ -136,7 +123,7 @@ def build_unet(
         else:
             skip = None
 
-        x = decoder_block(decoder_filters[i], stage=i, use_batchnorm=use_batchnorm)(x, skip)
+        x = decoder_block(decoder_filters[i], stage=i, normalization=normalization)(x, skip)
 
     # model head (define number of output classes)
     x = layers.Conv2D(
@@ -170,7 +157,7 @@ def Unet(
         encoder_features='default',
         decoder_block_type='upsampling',
         decoder_filters=(256, 128, 64, 32, 16),
-        decoder_use_batchnorm=True,
+        decoder_normalization='groupnorm',
         **kwargs
 ):
     """ Unet_ is a fully convolution neural network for image semantic segmentation
@@ -196,8 +183,7 @@ def Unet(
             - `transpose`:   ``Transpose2D`` -> ``Conv2D``
 
         decoder_filters: list of numbers of ``Conv2D`` layer filters in decoder blocks
-        decoder_use_batchnorm: if ``True``, ``BatchNormalisation`` layer between ``Conv2D`` and ``Activation`` layers
-            is used.
+        decoder_normalization: one of 'batchnorm', 'groupnorm', and None.
 
     Returns:
         ``keras.models.Model``: **Unet**
@@ -238,7 +224,7 @@ def Unet(
         classes=classes,
         activation=activation,
         n_upsample_blocks=len(decoder_filters),
-        use_batchnorm=decoder_use_batchnorm,
+        normalization=decoder_normalization,
     )
 
     # lock encoder weights for fine-tuning

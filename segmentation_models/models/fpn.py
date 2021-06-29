@@ -1,6 +1,6 @@
 from keras_applications import get_submodules_from_kwargs
 
-from ._common_blocks import Conv2dBn
+from ._common_blocks import Conv2dNorm, Conv3x3BnReLU
 from ._utils import freeze_model, filter_keras_submodules
 from ..backbones.backbones_factory import Backbones
 
@@ -27,33 +27,15 @@ def get_submodules():
 #  Blocks
 # ---------------------------------------------------------------------
 
-def Conv3x3BnReLU(filters, use_batchnorm, name=None):
-    kwargs = get_submodules()
-
-    def wrapper(input_tensor):
-        return Conv2dBn(
-            filters,
-            kernel_size=3,
-            activation='relu',
-            kernel_initializer='he_uniform',
-            padding='same',
-            use_batchnorm=use_batchnorm,
-            name=name,
-            **kwargs
-        )(input_tensor)
-
-    return wrapper
-
-
-def DoubleConv3x3BnReLU(filters, use_batchnorm, name=None):
+def DoubleConv3x3BnReLU(filters, normalization, name=None):
     name1, name2 = None, None
     if name is not None:
         name1 = name + 'a'
         name2 = name + 'b'
 
     def wrapper(input_tensor):
-        x = Conv3x3BnReLU(filters, use_batchnorm, name=name1)(input_tensor)
-        x = Conv3x3BnReLU(filters, use_batchnorm, name=name2)(x)
+        x = Conv3x3BnReLU(filters, normalization, name=name1)(input_tensor)
+        x = Conv3x3BnReLU(filters, normalization, name=name2)(x)
         return x
 
     return wrapper
@@ -106,7 +88,7 @@ def build_fpn(
         segmentation_filters=128,
         classes=1,
         activation='sigmoid',
-        use_batchnorm=True,
+        normalization='batchnorm',
         aggregation='sum',
         dropout=None,
 ):
@@ -124,10 +106,10 @@ def build_fpn(
     p2 = FPNBlock(pyramid_filters, stage=2)(p3, skips[3])
 
     # add segmentation head to each
-    s5 = DoubleConv3x3BnReLU(segmentation_filters, use_batchnorm, name='segm_stage5')(p5)
-    s4 = DoubleConv3x3BnReLU(segmentation_filters, use_batchnorm, name='segm_stage4')(p4)
-    s3 = DoubleConv3x3BnReLU(segmentation_filters, use_batchnorm, name='segm_stage3')(p3)
-    s2 = DoubleConv3x3BnReLU(segmentation_filters, use_batchnorm, name='segm_stage2')(p2)
+    s5 = DoubleConv3x3BnReLU(segmentation_filters, normalization, name='segm_stage5')(p5)
+    s4 = DoubleConv3x3BnReLU(segmentation_filters, normalization, name='segm_stage4')(p4)
+    s3 = DoubleConv3x3BnReLU(segmentation_filters, normalization, name='segm_stage3')(p3)
+    s2 = DoubleConv3x3BnReLU(segmentation_filters, normalization, name='segm_stage2')(p2)
 
     # upsampling to same resolution
     s5 = layers.UpSampling2D((8, 8), interpolation='nearest', name='upsampling_stage5')(s5)
@@ -148,7 +130,7 @@ def build_fpn(
         x = layers.SpatialDropout2D(dropout, name='pyramid_dropout')(x)
 
     # final stage
-    x = Conv3x3BnReLU(segmentation_filters, use_batchnorm, name='final_stage')(x)
+    x = Conv3x3BnReLU(segmentation_filters, normalization, name='final_stage')(x)
     x = layers.UpSampling2D(size=(2, 2), interpolation='bilinear', name='final_upsampling')(x)
 
     # model head (define number of output classes)
@@ -182,7 +164,7 @@ def FPN(
         encoder_freeze=False,
         encoder_features='default',
         pyramid_block_filters=256,
-        pyramid_use_batchnorm=True,
+        pyramid_normalization='batchnorm',
         pyramid_aggregation='concat',
         pyramid_dropout=None,
         **kwargs
@@ -204,8 +186,7 @@ def FPN(
                 Each of these layers will be used to build features pyramid. If ``default`` is used
                 layer names are taken from ``DEFAULT_FEATURE_PYRAMID_LAYERS``.
         pyramid_block_filters: a number of filters in Feature Pyramid Block of FPN_.
-        pyramid_use_batchnorm: if ``True``, ``BatchNormalisation`` layer between ``Conv2D`` and ``Activation`` layers
-                is used.
+        pyramid_normalization: one of 'batchnorm', 'groupnorm', and None.
         pyramid_aggregation: one of 'sum' or 'concat'. The way to aggregate pyramid blocks.
         pyramid_dropout: spatial dropout rate for feature pyramid in range (0, 1).
 
@@ -236,7 +217,7 @@ def FPN(
         skip_connection_layers=encoder_features,
         pyramid_filters=pyramid_block_filters,
         segmentation_filters=pyramid_block_filters // 2,
-        use_batchnorm=pyramid_use_batchnorm,
+        normalization=pyramid_normalization,
         dropout=pyramid_dropout,
         activation=activation,
         classes=classes,

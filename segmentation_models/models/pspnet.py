@@ -1,6 +1,6 @@
 from keras_applications import get_submodules_from_kwargs
 
-from ._common_blocks import Conv2dBn
+from ._common_blocks import Conv2dNorm, Conv1x1BnReLU
 from ._utils import freeze_model, filter_keras_submodules
 from ..backbones.backbones_factory import Backbones
 
@@ -44,29 +44,11 @@ def check_input_shape(input_shape, factor):
 #  Blocks
 # ---------------------------------------------------------------------
 
-def Conv1x1BnReLU(filters, use_batchnorm, name=None):
-    kwargs = get_submodules()
-
-    def wrapper(input_tensor):
-        return Conv2dBn(
-            filters,
-            kernel_size=1,
-            activation='relu',
-            kernel_initializer='he_uniform',
-            padding='same',
-            use_batchnorm=use_batchnorm,
-            name=name,
-            **kwargs
-        )(input_tensor)
-
-    return wrapper
-
-
 def SpatialContextBlock(
         level,
         conv_filters=512,
         pooling_type='avg',
-        use_batchnorm=True,
+        normalization='batchnorm',
 ):
     if pooling_type not in ('max', 'avg'):
         raise ValueError('Unsupported pooling type - `{}`.'.format(pooling_type) +
@@ -90,7 +72,7 @@ def SpatialContextBlock(
         pool_size = up_size = [spatial_size[0] // level, spatial_size[1] // level]
 
         x = Pooling2D(pool_size, strides=pool_size, padding='same', name=pooling_name)(input_tensor)
-        x = Conv1x1BnReLU(conv_filters, use_batchnorm, name=conv_block_name)(x)
+        x = Conv1x1BnReLU(conv_filters, normalization, name=conv_block_name)(x)
         x = layers.UpSampling2D(up_size, interpolation='bilinear', name=upsampling_name)(x)
         return x
 
@@ -106,7 +88,7 @@ def build_psp(
         psp_layer_idx,
         pooling_type='avg',
         conv_filters=512,
-        use_batchnorm=True,
+        normalization='batchnorm',
         final_upsampling_factor=8,
         classes=21,
         activation='softmax',
@@ -117,15 +99,15 @@ def build_psp(
          else backbone.get_layer(index=psp_layer_idx).output)
 
     # build spatial pyramid
-    x1 = SpatialContextBlock(1, conv_filters, pooling_type, use_batchnorm)(x)
-    x2 = SpatialContextBlock(2, conv_filters, pooling_type, use_batchnorm)(x)
-    x3 = SpatialContextBlock(3, conv_filters, pooling_type, use_batchnorm)(x)
-    x6 = SpatialContextBlock(6, conv_filters, pooling_type, use_batchnorm)(x)
+    x1 = SpatialContextBlock(1, conv_filters, pooling_type, normalization)(x)
+    x2 = SpatialContextBlock(2, conv_filters, pooling_type, normalization)(x)
+    x3 = SpatialContextBlock(3, conv_filters, pooling_type, normalization)(x)
+    x6 = SpatialContextBlock(6, conv_filters, pooling_type, normalization)(x)
 
     # aggregate spatial pyramid
     concat_axis = 3 if backend.image_data_format() == 'channels_last' else 1
     x = layers.Concatenate(axis=concat_axis, name='psp_concat')([x, x1, x2, x3, x6])
-    x = Conv1x1BnReLU(conv_filters, use_batchnorm, name='aggregation')(x)
+    x = Conv1x1BnReLU(conv_filters, normalization, name='aggregation')(x)
 
     # model regularization
     if dropout is not None:
@@ -163,7 +145,7 @@ def PSPNet(
         downsample_factor=8,
         psp_conv_filters=512,
         psp_pooling_type='avg',
-        psp_use_batchnorm=True,
+        psp_normalization='batchnorm',
         psp_dropout=None,
         **kwargs
 ):
@@ -184,8 +166,7 @@ def PSPNet(
             to construct PSP module on it.
         psp_conv_filters: number of filters in ``Conv2D`` layer in each PSP block.
         psp_pooling_type: one of 'avg', 'max'. PSP block pooling type (maximum or average).
-        psp_use_batchnorm: if ``True``, ``BatchNormalisation`` layer between ``Conv2D`` and ``Activation`` layers
-                is used.
+        psp_normalization: one of 'batchnorm', 'groupnorm', and None.
         psp_dropout: dropout rate between 0 and 1.
 
     Returns:
@@ -227,7 +208,7 @@ def PSPNet(
         psp_layer_idx,
         pooling_type=psp_pooling_type,
         conv_filters=psp_conv_filters,
-        use_batchnorm=psp_use_batchnorm,
+        normalization=psp_normalization,
         final_upsampling_factor=downsample_factor,
         classes=classes,
         activation=activation,
