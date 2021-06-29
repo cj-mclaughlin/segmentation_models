@@ -2,6 +2,14 @@ from keras_applications import get_submodules_from_kwargs
 
 from tensorflow_addons.layers import GroupNormalization
 
+def get_submodules():
+    return {
+        'backend': backend,
+        'models': models,
+        'layers': layers,
+        'utils': keras_utils,
+    }
+
 def Conv2dNorm(
         filters,
         kernel_size,

@@ -14,15 +14,6 @@ keras_utils = None
 #  Utility functions
 # ---------------------------------------------------------------------
 
-def get_submodules():
-    return {
-        'backend': backend,
-        'models': models,
-        'layers': layers,
-        'utils': keras_utils,
-    }
-
-
 def check_input_shape(input_shape, factor):
     if input_shape is None:
         raise ValueError("Input shape should be a tuple of 3 integers, not None!")
