@@ -2,14 +2,6 @@ from keras_applications import get_submodules_from_kwargs
 
 from tensorflow_addons.layers import GroupNormalization
 
-def get_submodules():
-    return {
-        'backend': backend,
-        'models': models,
-        'layers': layers,
-        'utils': keras_utils,
-    }
-
 def Conv2dNorm(
         filters,
         kernel_size,
@@ -80,41 +72,5 @@ def Conv2dNorm(
             x = layers.Activation(activation, name=act_name)(x)
 
         return x
-
-    return wrapper
-
-
-def Conv3x3BnReLU(filters, normalization, name=None):
-    kwargs = get_submodules()
-
-    def wrapper(input_tensor):
-        return Conv2dBn(
-            filters,
-            kernel_size=3,
-            activation='relu',
-            kernel_initializer='he_uniform',
-            padding='same',
-            normalization=normalization,
-            name=name,
-            **kwargs
-        )(input_tensor)
-
-    return wrapper
-
-
-def Conv1x1BnReLU(filters, normalization, name=None):
-    kwargs = get_submodules()
-
-    def wrapper(input_tensor):
-        return Conv2dNorm(
-            filters,
-            kernel_size=1,
-            activation='relu',
-            kernel_initializer='he_uniform',
-            padding='same',
-            normalization=normalization,
-            name=name,
-            **kwargs
-        )(input_tensor)
 
     return wrapper

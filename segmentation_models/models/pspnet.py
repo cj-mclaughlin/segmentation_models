@@ -1,6 +1,6 @@
 from keras_applications import get_submodules_from_kwargs
 
-from ._common_blocks import Conv2dNorm, Conv1x1BnReLU
+from ._common_blocks import Conv2dNorm
 from ._utils import freeze_model, filter_keras_submodules
 from ..backbones.backbones_factory import Backbones
 
@@ -13,6 +13,14 @@ keras_utils = None
 # ---------------------------------------------------------------------
 #  Utility functions
 # ---------------------------------------------------------------------
+
+def get_submodules():
+    return {
+        'backend': backend,
+        'models': models,
+        'layers': layers,
+        'utils': keras_utils,
+    }
 
 def check_input_shape(input_shape, factor):
     if input_shape is None:
@@ -30,6 +38,41 @@ def check_input_shape(input_shape, factor):
         raise ValueError('Wrong shape {}, input H and W should '.format(input_shape) +
                          'be divisible by `{}`'.format(min_size))
 
+
+def Conv3x3BnReLU(filters, normalization, name=None):
+    kwargs = get_submodules()
+
+    def wrapper(input_tensor):
+        return Conv2dBn(
+            filters,
+            kernel_size=3,
+            activation='relu',
+            kernel_initializer='he_uniform',
+            padding='same',
+            normalization=normalization,
+            name=name,
+            **kwargs
+        )(input_tensor)
+
+    return wrapper
+
+
+def Conv1x1BnReLU(filters, normalization, name=None):
+    kwargs = get_submodules()
+
+    def wrapper(input_tensor):
+        return Conv2dNorm(
+            filters,
+            kernel_size=1,
+            activation='relu',
+            kernel_initializer='he_uniform',
+            padding='same',
+            normalization=normalization,
+            name=name,
+            **kwargs
+        )(input_tensor)
+
+    return wrapper
 
 # ---------------------------------------------------------------------
 #  Blocks
